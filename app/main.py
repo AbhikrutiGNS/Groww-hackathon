@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import AsyncSessionLocal, engine
-from app.routers import watchlist
+from app.routers import auth, watchlist
 from app.services.market_data import fetch_and_store_snapshots
 
 load_dotenv()
@@ -73,6 +73,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(watchlist.router)
 
 
