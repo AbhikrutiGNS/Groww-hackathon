@@ -19,9 +19,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import WatchlistItem
+from app.models import WatchlistItem, CompanyFundamental
 from app.auth import get_current_user_id
 from app.services.ticker_registry import UnresolvableTickerError, ensure_ticker_exists
+from app.services.fundamentals import fetch_and_store_fundamentals_for_symbol
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -111,6 +112,13 @@ async def add_or_reactivate_watchlist_item(
         # the FK target exists, but fail loudly rather than return a null
         # body if some other constraint trips.
         raise HTTPException(status_code=500, detail=f"Could not add {symbol}")
+
+    # Best-effort, on-demand fundamentals fetch so this symbol's dashboard
+    # row isn't empty until the next periodic cycle (default every 6h).
+    # fetch_and_store_fundamentals_for_symbol never raises — a fundamentals
+    # miss must not fail "add ticker".
+    await fetch_and_store_fundamentals_for_symbol(db, symbol)
+
     return WatchlistItemResponse.model_validate(row)
 
 
@@ -122,6 +130,19 @@ class WatchlistListItem(BaseModel):
     is_stale: Optional[bool] = None
     day_high: Optional[Decimal] = None
     day_low: Optional[Decimal] = None
+    # Fundamentals — nullable because they're best-effort and slower to
+    # arrive than price (see fetch_and_store_fundamentals_for_symbol).
+    # "just added — building history" applies here too, not just to the
+    # attention feed's baseline.
+    market_cap: Optional[Decimal] = None
+    pe_ratio: Optional[Decimal] = None
+    pb_ratio: Optional[Decimal] = None
+    eps: Optional[Decimal] = None
+    roe: Optional[Decimal] = None
+    roce: Optional[Decimal] = None
+    debt_to_equity: Optional[Decimal] = None
+    dividend_yield: Optional[Decimal] = None
+    fundamentals_updated_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +162,16 @@ _WATCHLIST_SQL = text(
         latest.price    AS current_price,
         latest.is_stale AS is_stale,
         latest.day_high AS day_high,
-        latest.day_low  AS day_low
+        latest.day_low  AS day_low,
+        cf.market_cap        AS market_cap,
+        cf.pe_ratio          AS pe_ratio,
+        cf.pb_ratio          AS pb_ratio,
+        cf.eps               AS eps,
+        cf.roe                AS roe,
+        cf.roce               AS roce,
+        cf.debt_to_equity     AS debt_to_equity,
+        cf.dividend_yield     AS dividend_yield,
+        cf.updated_at         AS fundamentals_updated_at
     FROM watchlist_items w
     LEFT JOIN LATERAL (
         SELECT price, is_stale, day_high, day_low
@@ -150,6 +180,7 @@ _WATCHLIST_SQL = text(
         ORDER BY s.captured_at DESC
         LIMIT 1
     ) latest ON true
+    LEFT JOIN company_fundamentals cf ON cf.symbol = w.symbol
     WHERE w.user_id = :user_id AND w.is_active = true
     ORDER BY w.added_at DESC
     """
@@ -240,6 +271,57 @@ async def simulate_price_move(
     )
     await db.commit()
     return {"symbol": symbol, "old_price": latest, "new_price": new_price}
+
+
+class DemoSeedFundamentalsRequest(BaseModel):
+    symbol: str
+    market_cap: Optional[Decimal] = None
+    pe_ratio: Optional[Decimal] = None
+    pb_ratio: Optional[Decimal] = None
+    eps: Optional[Decimal] = None
+    roe: Optional[Decimal] = None
+    roce: Optional[Decimal] = None
+    debt_to_equity: Optional[Decimal] = None
+    dividend_yield: Optional[Decimal] = None
+
+
+@router.post(
+    "/demo/seed-fundamentals",
+    status_code=201,
+    include_in_schema=os.getenv("DEMO_MODE") == "1",
+)
+async def seed_fundamentals(
+    payload: DemoSeedFundamentalsRequest,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Demo-only: manually set fundamentals for a symbol so the dashboard has
+    something to show without depending on a live yfinance call (rate
+    limits, network access, or a symbol Yahoo doesn't cover well — e.g.
+    thinly-traded NSE/BSE tickers). Gated behind DEMO_MODE exactly like
+    /demo/simulate-move.
+    """
+    if os.getenv("DEMO_MODE") != "1":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    symbol = payload.symbol.upper().strip()
+    exists = (
+        await db.execute(text("SELECT 1 FROM tickers WHERE symbol = :symbol"), {"symbol": symbol})
+    ).scalar_one_or_none()
+    if exists is None:
+        raise HTTPException(status_code=404, detail=f"{symbol} is not a known ticker yet — add it to a watchlist first.")
+
+    stmt = (
+        pg_insert(__import__("app.models", fromlist=["CompanyFundamental"]).CompanyFundamental)
+        .values(symbol=symbol, **payload.model_dump(exclude={"symbol"}))
+        .on_conflict_do_update(
+            index_elements=["symbol"],
+            set_=payload.model_dump(exclude={"symbol"}),
+        )
+    )
+    await db.execute(stmt)
+    await db.commit()
+    return {"symbol": symbol, "seeded": True}
 
 
 @router.post("/acknowledge", status_code=204)
