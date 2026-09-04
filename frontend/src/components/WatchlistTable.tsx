@@ -34,6 +34,8 @@ export function WatchlistTable({
           <th className="font-medium py-2 pr-2">Symbol</th>
           <th className="font-medium py-2 pr-2">Price</th>
           <th className="font-medium py-2 pr-2">Day range</th>
+          <th className="font-medium py-2 pr-2">1W range</th>
+          <th className="font-medium py-2 pr-2">Trend</th>
           <th className="font-medium py-2 pr-2">Added</th>
           <th className="font-medium py-2 pr-2 text-right"></th>
         </tr>
@@ -66,6 +68,28 @@ export function WatchlistTable({
               {item.day_low && item.day_high
                 ? `${formatPrice(item.day_low)} – ${formatPrice(item.day_high)}`
                 : "—"}
+            </td>
+            <td className="py-2.5 pr-2 font-mono-tabular text-[var(--text-secondary)]">
+              {item.week_low && item.week_high
+                ? `${formatPrice(item.week_low)} – ${formatPrice(item.week_high)}`
+                : "—"}
+            </td>
+            <td className="py-2.5 pr-2 font-mono-tabular">
+              {item.sma_20 && item.sma_50 ? (
+                Number(item.sma_20) > Number(item.sma_50) ? (
+                  <span style={{ color: "var(--gain)" }} title={`SMA20 ${formatPrice(item.sma_20)} > SMA50 ${formatPrice(item.sma_50)}`}>
+                    ▲ up
+                  </span>
+                ) : (
+                  <span style={{ color: "var(--loss)" }} title={`SMA20 ${formatPrice(item.sma_20)} < SMA50 ${formatPrice(item.sma_50)}`}>
+                    ▼ down
+                  </span>
+                )
+              ) : (
+                <span className="text-[var(--text-tertiary)]" title="Needs 50 days of price history">
+                  building…
+                </span>
+              )}
             </td>
             <td className="py-2.5 pr-2 text-[var(--text-tertiary)]">{timeAgo(item.added_at)}</td>
             <td className="py-2.5 pr-2 text-right">

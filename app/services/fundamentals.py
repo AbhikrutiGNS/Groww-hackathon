@@ -93,9 +93,21 @@ def _blocking_fetch_fundamentals(symbol: str) -> Optional[FetchedFundamentals]:
     except Exception:
         roce = None
 
-    dividend_yield = info.get("dividendYield")
-    if dividend_yield is not None:
-        dividend_yield = dividend_yield * 100 if dividend_yield < 1 else dividend_yield
+    # yfinance has, across versions, returned dividendYield as either a
+    # fraction (0.006 = 0.6%) or an already-scaled percentage (0.6 = 0.6%),
+    # and magnitude-guessing between them silently misreports real values
+    # near the 1.0 boundary. Prefer deriving yield directly from the
+    # dividend rate and current price, which is unambiguous regardless of
+    # yfinance version; only fall back to the raw field if either input is
+    # missing.
+    dividend_rate = info.get("dividendRate")
+    current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+    if dividend_rate and current_price:
+        dividend_yield = (dividend_rate / current_price) * 100
+    else:
+        dividend_yield = info.get("dividendYield")
+        if dividend_yield is not None:
+            dividend_yield = dividend_yield * 100 if dividend_yield < 1 else dividend_yield
 
     return FetchedFundamentals(
         market_cap=info.get("marketCap"),

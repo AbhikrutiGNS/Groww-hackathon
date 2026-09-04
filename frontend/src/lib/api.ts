@@ -20,17 +20,26 @@ export type WatchlistListItem = {
   is_stale: boolean | null;
   day_high: string | null;
   day_low: string | null;
+  week_high: string | null;
+  week_low: string | null;
+  sma_20: string | null;
+  sma_50: string | null;
+  ema_20: string | null;
+  ema_50: string | null;
 };
 
 export type AttentionFeedItem = {
   symbol: string;
-  current_price: string;
+  current_price: string | null;
   baseline_price: string | null;
   percent_change: string | null;
   is_new_addition: boolean;
   is_stale: boolean;
   hit_52w_high: boolean;
   hit_52w_low: boolean;
+  hit_week_high: boolean;
+  hit_week_low: boolean;
+  trend_signal: "golden_cross" | "death_cross" | null;
 };
 
 class ApiError extends Error {

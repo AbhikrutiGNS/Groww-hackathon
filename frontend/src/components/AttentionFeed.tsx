@@ -39,7 +39,8 @@ export function AttentionFeed({
             Needs your attention
           </h2>
           <p className="text-sm text-[var(--text-secondary)] mt-0.5">
-            New additions, moves of 3% or more, and 52-week highs or lows since you last checked.
+            New additions, moves of 3% or more, 52-week and 1-week highs/lows, and SMA
+            20/50 crossovers since you last checked.
           </p>
         </div>
         {items.length > 0 && (
@@ -82,12 +83,18 @@ export function AttentionFeed({
                     {item.is_new_addition && <ReasonBadge label="new" tone="signal" />}
                     {item.hit_52w_high && <ReasonBadge label="52w high" tone="gain" />}
                     {item.hit_52w_low && <ReasonBadge label="52w low" tone="loss" />}
+                    {item.hit_week_high && <ReasonBadge label="1w high" tone="gain" />}
+                    {item.hit_week_low && <ReasonBadge label="1w low" tone="loss" />}
+                    {item.trend_signal === "golden_cross" && <ReasonBadge label="golden cross" tone="gain" />}
+                    {item.trend_signal === "death_cross" && <ReasonBadge label="death cross" tone="loss" />}
                     {item.is_stale && <ReasonBadge label="stale data" tone="stale" />}
                   </div>
                 </div>
                 <div className="text-right font-mono-tabular">
                   <div className="text-sm text-[var(--text-primary)]">
-                    ${formatPrice(item.current_price)}
+                    {item.current_price ? `$${formatPrice(item.current_price)}` : (
+                      <span className="text-[var(--text-tertiary)]">pending…</span>
+                    )}
                   </div>
                   {pct !== null && (
                     <div

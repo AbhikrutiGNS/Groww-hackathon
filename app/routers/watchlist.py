@@ -23,6 +23,7 @@ from app.models import WatchlistItem, CompanyFundamental
 from app.auth import get_current_user_id
 from app.services.ticker_registry import UnresolvableTickerError, ensure_ticker_exists
 from app.services.fundamentals import fetch_and_store_fundamentals_for_symbol
+from app.services.technicals import get_technicals
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -46,13 +47,16 @@ class WatchlistItemResponse(BaseModel):
 
 class AttentionFeedItem(BaseModel):
     symbol: str
-    current_price: Decimal
+    current_price: Optional[Decimal] = None  # null when no snapshot has landed yet (see LEFT JOIN below)
     baseline_price: Optional[Decimal]
     percent_change: Optional[Decimal]
     is_new_addition: bool  # True when no baseline exists yet — see below
     is_stale: bool
-    hit_52w_high: bool
-    hit_52w_low: bool
+    hit_52w_high: bool = False
+    hit_52w_low: bool = False
+    hit_week_high: bool = False
+    hit_week_low: bool = False
+    trend_signal: Optional[str] = None  # "golden_cross" | "death_cross" | None
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +147,15 @@ class WatchlistListItem(BaseModel):
     debt_to_equity: Optional[Decimal] = None
     dividend_yield: Optional[Decimal] = None
     fundamentals_updated_at: Optional[datetime] = None
+    # Technicals — derived from stock_snapshots on read, not stored.
+    # See app/services/technicals.py. Nullable for the same reason as
+    # fundamentals: not enough snapshot history yet for a fresh ticker.
+    week_high: Optional[Decimal] = None
+    week_low: Optional[Decimal] = None
+    sma_20: Optional[Decimal] = None
+    sma_50: Optional[Decimal] = None
+    ema_20: Optional[Decimal] = None
+    ema_50: Optional[Decimal] = None
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +206,14 @@ async def list_watchlist(
     db: AsyncSession = Depends(get_db),
 ) -> list[WatchlistListItem]:
     rows = (await db.execute(_WATCHLIST_SQL, {"user_id": user_id})).mappings().all()
-    return [WatchlistListItem(**row) for row in rows]
+
+    items: list[WatchlistListItem] = []
+    for row in rows:
+        # Sequential, not gathered concurrently — AsyncSession is not safe
+        # for concurrent use across coroutines (see market_data.py).
+        technicals = await get_technicals(db, row["symbol"])
+        items.append(WatchlistListItem(**row, **technicals))
+    return items
 
 
 @router.delete("/{symbol}", status_code=204)
@@ -371,11 +391,11 @@ _ATTENTION_FEED_SQL = text(
         w.symbol,
         latest.price               AS current_price,
         latest.is_stale            AS is_stale,
-        latest.price >= latest.week_52_high AS hit_52w_high,
-        latest.price <= latest.week_52_low  AS hit_52w_low,
+        COALESCE(latest.price >= latest.week_52_high, false) AS hit_52w_high,
+        COALESCE(latest.price <= latest.week_52_low, false)  AS hit_52w_low,
         baseline.price             AS baseline_price
     FROM watchlist_items w
-    JOIN LATERAL (
+    LEFT JOIN LATERAL (
         SELECT price, is_stale, week_52_high, week_52_low
         FROM stock_snapshots s
         WHERE s.symbol = w.symbol
@@ -420,7 +440,12 @@ async def get_attention_feed(
         baseline = row["baseline_price"]
         current = row["current_price"]
 
-        if baseline is None:
+        if current is None:
+            # No snapshot has landed yet (ticker was just added, ingestion
+            # hasn't run) — this is unambiguously "new", not a math problem.
+            percent_change = None
+            is_new = True
+        elif baseline is None:
             percent_change = None
             is_new = True
         else:
@@ -429,9 +454,32 @@ async def get_attention_feed(
             )
             is_new = False
 
-        meaningful = is_new or (
-            percent_change is not None and abs(percent_change) >= 3
-        ) or row["hit_52w_high"] or row["hit_52w_low"]
+        # Technicals are per-symbol, computed on read from stock_snapshots
+        # (see app/services/technicals.py) — not part of _ATTENTION_FEED_SQL
+        # above, which only covers the price/baseline/52w columns already
+        # on that query.
+        technicals = await get_technicals(db, row["symbol"])
+        hit_week_high = (
+            current is not None
+            and technicals["week_high"] is not None
+            and current >= technicals["week_high"]
+        )
+        hit_week_low = (
+            current is not None
+            and technicals["week_low"] is not None
+            and current <= technicals["week_low"]
+        )
+        trend_signal = technicals["trend_signal"]
+
+        meaningful = (
+            is_new
+            or (percent_change is not None and abs(percent_change) >= 3)
+            or row["hit_52w_high"]
+            or row["hit_52w_low"]
+            or hit_week_high
+            or hit_week_low
+            or trend_signal is not None
+        )
 
         if meaningful:
             feed.append(
@@ -444,6 +492,9 @@ async def get_attention_feed(
                     is_stale=row["is_stale"],
                     hit_52w_high=row["hit_52w_high"],
                     hit_52w_low=row["hit_52w_low"],
+                    hit_week_high=hit_week_high,
+                    hit_week_low=hit_week_low,
+                    trend_signal=trend_signal,
                 )
             )
     return feed
