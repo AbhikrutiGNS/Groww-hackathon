@@ -6,6 +6,7 @@ advances the baseline.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -13,7 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import text, DateTime, bindparam
+from sqlalchemy import text, DateTime, bindparam, String, Numeric
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,6 +96,57 @@ async def add_or_reactivate_watchlist_item(
     return WatchlistItemResponse.model_validate(row)
 
 
+class WatchlistListItem(BaseModel):
+    symbol: str
+    notes: Optional[str] = None
+    added_at: datetime
+    current_price: Optional[Decimal] = None
+    is_stale: Optional[bool] = None
+    day_high: Optional[Decimal] = None
+    day_low: Optional[Decimal] = None
+
+
+# ---------------------------------------------------------------------------
+# Plain list of everything the user is tracking, with the latest known price
+# regardless of whether it's "meaningful" — the Attention Feed answers "what
+# changed", this answers "what am I tracking". A stock that hasn't moved
+# still needs to be visible somewhere; it just shouldn't clutter the feed.
+# Symbols with no snapshot yet (freshly tracked, ingestion hasn't run) come
+# back with current_price = null rather than being silently dropped.
+# ---------------------------------------------------------------------------
+_WATCHLIST_SQL = text(
+    """
+    SELECT
+        w.symbol,
+        w.notes,
+        w.added_at,
+        latest.price    AS current_price,
+        latest.is_stale AS is_stale,
+        latest.day_high AS day_high,
+        latest.day_low  AS day_low
+    FROM watchlist_items w
+    LEFT JOIN LATERAL (
+        SELECT price, is_stale, day_high, day_low
+        FROM stock_snapshots s
+        WHERE s.symbol = w.symbol
+        ORDER BY s.captured_at DESC
+        LIMIT 1
+    ) latest ON true
+    WHERE w.user_id = :user_id AND w.is_active = true
+    ORDER BY w.added_at DESC
+    """
+)
+
+
+@router.get("", response_model=list[WatchlistListItem])
+async def list_watchlist(
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[WatchlistListItem]:
+    rows = (await db.execute(_WATCHLIST_SQL, {"user_id": user_id})).mappings().all()
+    return [WatchlistListItem(**row) for row in rows]
+
+
 @router.delete("/{symbol}", status_code=204)
 async def remove_watchlist_item(
     symbol: str,
@@ -112,6 +164,64 @@ async def remove_watchlist_item(
         {"user_id": user_id, "symbol": symbol.upper().strip()},
     )
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Demo-only: force a synthetic snapshot so the Attention Feed has something
+# to show without waiting on real market movement during a live demo.
+# Gated behind DEMO_MODE so it can never accidentally ship as a real
+# endpoint against production data.
+# ---------------------------------------------------------------------------
+class DemoSeedRequest(BaseModel):
+    symbol: str
+    percent_change: Decimal = Decimal("5.0")  # e.g. 5.0 = simulate a +5% move
+
+
+@router.post("/demo/simulate-move", status_code=201, include_in_schema=os.getenv("DEMO_MODE") == "1")
+async def simulate_price_move(
+    payload: DemoSeedRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if os.getenv("DEMO_MODE") != "1":
+        raise HTTPException(status_code=404, detail="Not found")
+
+    symbol = payload.symbol.upper().strip()
+    latest = (
+        await db.execute(
+            text(
+                """
+                SELECT price FROM stock_snapshots
+                WHERE symbol = :symbol
+                ORDER BY captured_at DESC LIMIT 1
+                """
+            ),
+            {"symbol": symbol},
+        )
+    ).scalar_one_or_none()
+    if latest is None:
+        raise HTTPException(status_code=404, detail=f"No snapshot yet for {symbol}")
+
+    new_price = latest * (1 + payload.percent_change / 100)
+    await db.execute(
+        text(
+            """
+            INSERT INTO stock_snapshots
+                (symbol, captured_at, price, day_high, day_low, volume,
+                 week_52_high, week_52_low, source, is_stale)
+            SELECT :symbol, now(), :price, day_high, day_low, volume,
+                   week_52_high, week_52_low, 'demo-simulated', false
+            FROM stock_snapshots WHERE symbol = :symbol
+            ORDER BY captured_at DESC LIMIT 1
+            """
+        ).bindparams(
+            bindparam("symbol", type_=String),
+            bindparam("price", type_=Numeric),
+        ),
+        {"symbol": symbol, "price": new_price},
+    )
+    await db.commit()
+    return {"symbol": symbol, "old_price": latest, "new_price": new_price}
 
 
 @router.post("/acknowledge", status_code=204)
