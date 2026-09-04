@@ -1,0 +1,14 @@
+# Environments
+venv/
+env/
+.env
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Mac/Windows trash
+.DS_Store
+Thumbs.db
