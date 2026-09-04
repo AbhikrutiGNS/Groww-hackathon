@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, ApiError, AttentionFeedItem, CurrentUser, WatchlistListItem } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  AttentionFeedItem,
+  CurrentUser,
+  NotificationHistoryItem,
+  WatchlistListItem,
+} from "@/lib/api";
 import { AttentionFeed } from "@/components/AttentionFeed";
 import { WatchlistTable } from "@/components/WatchlistTable";
 import { AddTickerForm } from "@/components/AddTickerForm";
@@ -21,6 +28,13 @@ export default function Home() {
   const [addError, setAddError] = useState<string | null>(null);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [acknowledging, setAcknowledging] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Fetched at most once per visit to the empty state — toggling closed
+  // and back open re-shows what's already in memory rather than re-fetching,
+  // since the log only changes on the next "mark all reviewed".
+  const [historyFetched, setHistoryFetched] = useState(false);
   // Set only while a background poll is failing (backend unreachable,
   // brief network blip, dev server mid-restart, etc.) — never thrown, so
   // it can't crash the UI. Last-known-good watchlist/feed data stays on
@@ -103,8 +117,31 @@ export default function Home() {
     try {
       await api.acknowledge();
       await refresh();
+      // The acknowledge just wrote a fresh batch into notification_history —
+      // whatever was in state is now stale, so force the next toggle-open
+      // to re-fetch instead of showing pre-acknowledge data.
+      setHistoryFetched(false);
+      setHistory([]);
     } finally {
       setAcknowledging(false);
+    }
+  }
+
+  async function handleToggleHistory() {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (next && !historyFetched) {
+      setHistoryLoading(true);
+      try {
+        const h = await api.getNotificationHistory();
+        setHistory(h);
+        setHistoryFetched(true);
+      } catch {
+        // Leave history empty; the card already renders an honest
+        // "no notifications tracked yet" state for an empty array.
+      } finally {
+        setHistoryLoading(false);
+      }
     }
   }
 
@@ -155,6 +192,10 @@ export default function Home() {
           loading={loading}
           onAcknowledge={handleAcknowledge}
           acknowledging={acknowledging}
+          history={history}
+          historyLoading={historyLoading}
+          onToggleHistory={handleToggleHistory}
+          showHistory={showHistory}
         />
       </div>
 

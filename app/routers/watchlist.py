@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.models import WatchlistItem, CompanyFundamental
+from app.models import WatchlistItem, CompanyFundamental, NotificationHistory
 from app.auth import get_current_user_id
 from app.services.ticker_registry import UnresolvableTickerError, ensure_ticker_exists
 from app.services.fundamentals import fetch_and_store_fundamentals_for_symbol
@@ -57,6 +57,20 @@ class AttentionFeedItem(BaseModel):
     hit_week_high: bool = False
     hit_week_low: bool = False
     trend_signal: Optional[str] = None  # "golden_cross" | "death_cross" | None
+
+
+class NotificationHistoryItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    symbol: str
+    current_price: Optional[Decimal] = None
+    percent_change: Optional[Decimal] = None
+    is_new_addition: bool
+    hit_52w_high: bool = False
+    hit_52w_low: bool = False
+    hit_week_high: bool = False
+    hit_week_low: bool = False
+    trend_signal: Optional[str] = None
+    occurred_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +379,30 @@ async def acknowledge_watchlist(
     NOT called on every GET of the attention feed. The frontend calls this
     on an explicit "mark as reviewed" action, tab close, or after a
     debounce — never on page load.
+
+    Before the baseline moves, whatever is currently meaningful gets copied
+    into notification_history — that's what powers "view last 5
+    notifications" once the feed goes quiet. This has to happen against the
+    OLD baseline (i.e. before the UPDATE below), otherwise everything would
+    already read as "no change" against itself.
     """
+    feed_items = await _compute_attention_feed(db, user_id)
+    for item in feed_items:
+        db.add(
+            NotificationHistory(
+                user_id=user_id,
+                symbol=item.symbol,
+                current_price=item.current_price,
+                percent_change=item.percent_change,
+                is_new_addition=item.is_new_addition,
+                hit_52w_high=item.hit_52w_high,
+                hit_52w_low=item.hit_52w_low,
+                hit_week_high=item.hit_week_high,
+                hit_week_low=item.hit_week_low,
+                trend_signal=item.trend_signal,
+            )
+        )
+
     result = await db.execute(
         text("UPDATE users SET last_viewed_at = now(), updated_at = now() WHERE id = :user_id"),
         {"user_id": user_id},
@@ -374,6 +411,35 @@ async def acknowledge_watchlist(
         await db.rollback()
         raise HTTPException(status_code=404, detail="User not found")
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Last 5 notifications the user has ever acknowledged, newest first. This is
+# a straight read of the log written above — no "last 5" cache to keep in
+# sync, the trimming is just ORDER BY + LIMIT at read time.
+# ---------------------------------------------------------------------------
+@router.get("/notification-history", response_model=list[NotificationHistoryItem])
+async def get_notification_history(
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[NotificationHistoryItem]:
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT symbol, current_price, percent_change, is_new_addition,
+                       hit_52w_high, hit_52w_low, hit_week_high, hit_week_low,
+                       trend_signal, occurred_at
+                FROM notification_history
+                WHERE user_id = :user_id
+                ORDER BY occurred_at DESC
+                LIMIT 5
+                """
+            ),
+            {"user_id": user_id},
+        )
+    ).mappings().all()
+    return [NotificationHistoryItem.model_validate(dict(row)) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -429,11 +495,13 @@ _ATTENTION_FEED_SQL = text(
 )
 
 
-@router.get("/attention-feed", response_model=list[AttentionFeedItem])
-async def get_attention_feed(
-    user_id: UUID = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-) -> list[AttentionFeedItem]:
+async def _compute_attention_feed(db: AsyncSession, user_id: UUID) -> list[AttentionFeedItem]:
+    """
+    Shared by GET /attention-feed (read-only) and POST /acknowledge (which
+    needs the same "what's meaningful right now" list to snapshot into
+    notification_history before it moves the baseline). Pulled out so the
+    two call sites can never drift apart on what counts as "meaningful".
+    """
     # Read last_viewed_at once, not inside the loop / not inside the SQL as
     # a fabricated fallback — NULL is passed through as NULL on purpose.
     user_row = await db.execute(
@@ -519,3 +587,11 @@ async def get_attention_feed(
                 )
             )
     return feed
+
+
+@router.get("/attention-feed", response_model=list[AttentionFeedItem])
+async def get_attention_feed(
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> list[AttentionFeedItem]:
+    return await _compute_attention_feed(db, user_id)

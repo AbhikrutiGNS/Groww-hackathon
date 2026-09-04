@@ -150,6 +150,41 @@ class HoldingTransaction(Base):
     ticker: Mapped["Ticker"] = relationship()
 
 
+class NotificationHistory(Base):
+    """
+    Append-only log of what was on the Attention Feed each time the user
+    acknowledged it. Written by /watchlist/acknowledge, read by
+    /watchlist/notification-history (last 5, newest first) so the "you're
+    caught up" state can still answer "what did I just review?" instead of
+    just going blank.
+
+    No FK on symbol deliberately — see migration 0003 docstring: this is a
+    snapshot of what happened, not a live reference, so it must outlive the
+    watchlist item (or even the ticker) it was about.
+    """
+
+    __tablename__ = "notification_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(String(20), nullable=False)
+    current_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    percent_change: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4), nullable=True)
+    is_new_addition: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    hit_52w_high: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    hit_52w_low: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    hit_week_high: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    hit_week_low: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    trend_signal: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    occurred_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    user: Mapped["User"] = relationship()
+
+
 class StockSnapshot(Base):
     """Append-only, high-frequency time series. Shared across all users
     tracking the symbol — never write one per (user, symbol, time)."""

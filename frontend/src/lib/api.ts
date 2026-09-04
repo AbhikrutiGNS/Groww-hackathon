@@ -56,6 +56,19 @@ export type AttentionFeedItem = {
   trend_signal: "golden_cross" | "death_cross" | null;
 };
 
+export type NotificationHistoryItem = {
+  symbol: string;
+  current_price: string | null;
+  percent_change: string | null;
+  is_new_addition: boolean;
+  hit_52w_high: boolean;
+  hit_52w_low: boolean;
+  hit_week_high: boolean;
+  hit_week_low: boolean;
+  trend_signal: "golden_cross" | "death_cross" | null;
+  occurred_at: string;
+};
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -139,6 +152,8 @@ export const api = {
     }),
   getAttentionFeed: () => request<AttentionFeedItem[]>("/watchlist/attention-feed"),
   acknowledge: () => request<void>("/watchlist/acknowledge", { method: "POST" }),
+  getNotificationHistory: () =>
+    request<NotificationHistoryItem[]>("/watchlist/notification-history"),
 };
 
 export { ApiError };

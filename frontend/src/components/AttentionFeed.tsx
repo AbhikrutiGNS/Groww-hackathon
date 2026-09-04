@@ -1,7 +1,7 @@
 "use client";
 
-import { AttentionFeedItem } from "@/lib/api";
-import { formatPrice, formatPercent } from "@/lib/format";
+import { AttentionFeedItem, NotificationHistoryItem } from "@/lib/api";
+import { formatPrice, formatPercent, timeAgo } from "@/lib/format";
 
 function ReasonBadge({ label, tone }: { label: string; tone: "signal" | "gain" | "loss" | "stale" | "new" }) {
   // "new" gets the neon fuchsia treatment; everything else keeps the
@@ -29,16 +29,63 @@ function ReasonBadge({ label, tone }: { label: string; tone: "signal" | "gain" |
   );
 }
 
+function HistoryRow({ item }: { item: NotificationHistoryItem }) {
+  const pct = item.percent_change ? Number(item.percent_change) : null;
+  const isGain = pct !== null && pct > 0;
+  return (
+    <li className="flex items-center justify-between rounded-md border border-violet-500/20 bg-[var(--bg-raised)]/60 px-3 py-2 opacity-70">
+      <div className="flex items-center gap-3">
+        <span className="font-mono-tabular text-xs font-semibold text-[var(--text-secondary)] w-16">
+          {item.symbol}
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {item.is_new_addition && <ReasonBadge label="new" tone="new" />}
+          {item.hit_52w_high && <ReasonBadge label="52w high" tone="gain" />}
+          {item.hit_52w_low && <ReasonBadge label="52w low" tone="loss" />}
+          {item.hit_week_high && <ReasonBadge label="1w high" tone="gain" />}
+          {item.hit_week_low && <ReasonBadge label="1w low" tone="loss" />}
+          {item.trend_signal === "golden_cross" && <ReasonBadge label="golden cross" tone="gain" />}
+          {item.trend_signal === "death_cross" && <ReasonBadge label="death cross" tone="loss" />}
+        </div>
+      </div>
+      <div className="text-right font-mono-tabular">
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-xs text-[var(--text-secondary)]">
+            {item.current_price ? `$${formatPrice(item.current_price)}` : "—"}
+          </span>
+          {pct !== null && (
+            <span
+              className="text-xs"
+              style={{ color: pct === 0 ? "var(--text-tertiary)" : isGain ? "var(--gain)" : "var(--loss)" }}
+            >
+              {formatPercent(item.percent_change)}
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] text-[var(--text-tertiary)]">{timeAgo(item.occurred_at)}</div>
+      </div>
+    </li>
+  );
+}
+
 export function AttentionFeed({
   items,
   loading,
   onAcknowledge,
   acknowledging,
+  history,
+  historyLoading,
+  onToggleHistory,
+  showHistory,
 }: {
   items: AttentionFeedItem[];
   loading: boolean;
   onAcknowledge: () => void;
   acknowledging: boolean;
+  history: NotificationHistoryItem[];
+  historyLoading: boolean;
+  onToggleHistory: () => void;
+  showHistory: boolean;
 }) {
   return (
     <section>
@@ -68,11 +115,36 @@ export function AttentionFeed({
           Loading…
         </div>
       ) : items.length === 0 ? (
-        <div className="py-10 text-center border border-dashed border-violet-500/30 rounded-lg">
+        <div className="py-10 px-4 text-center border border-dashed border-violet-500/30 rounded-lg">
           <p className="text-sm text-[var(--text-secondary)]">You&apos;re caught up.</p>
           <p className="text-xs text-[var(--text-tertiary)] mt-1">
             Nothing has moved meaningfully since your last visit.
           </p>
+
+          <button
+            onClick={onToggleHistory}
+            className="mt-4 rounded-md border border-violet-500/40 px-3 py-1.5 text-xs text-[var(--text-secondary)] hover:text-fuchsia-300 hover:border-fuchsia-400/50 transition-colors"
+          >
+            {showHistory ? "Hide last 5 notifications" : "View last 5 notifications"}
+          </button>
+
+          {showHistory && (
+            <div className="mt-4 text-left">
+              {historyLoading ? (
+                <p className="text-xs text-[var(--text-tertiary)] text-center py-4">Loading…</p>
+              ) : history.length === 0 ? (
+                <p className="text-xs text-[var(--text-tertiary)] text-center py-4">
+                  No notifications tracked yet.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {history.map((item, i) => (
+                    <HistoryRow key={`${item.symbol}-${item.occurred_at}-${i}`} item={item} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <ul className="space-y-2">
