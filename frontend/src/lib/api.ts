@@ -26,6 +26,20 @@ export type WatchlistListItem = {
   sma_50: string | null;
   ema_20: string | null;
   ema_50: string | null;
+  history_days: number;
+  week_52_high: string | null;
+  week_52_low: string | null;
+  // Fundamentals — best-effort, may lag behind price by a while (see
+  // fetch_and_store_fundamentals_for_symbol on the backend).
+  market_cap: string | null;
+  pe_ratio: string | null;
+  pb_ratio: string | null;
+  eps: string | null;
+  roe: string | null;
+  roce: string | null;
+  debt_to_equity: string | null;
+  dividend_yield: string | null;
+  fundamentals_updated_at: string | null;
 };
 
 export type AttentionFeedItem = {

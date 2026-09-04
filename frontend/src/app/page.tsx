@@ -21,6 +21,11 @@ export default function Home() {
   const [addError, setAddError] = useState<string | null>(null);
   const [removingSymbol, setRemovingSymbol] = useState<string | null>(null);
   const [acknowledging, setAcknowledging] = useState(false);
+  // Set only while a background poll is failing (backend unreachable,
+  // brief network blip, dev server mid-restart, etc.) — never thrown, so
+  // it can't crash the UI. Last-known-good watchlist/feed data stays on
+  // screen the whole time; this is just an honest "still trying" signal.
+  const [connectionIssue, setConnectionIssue] = useState(false);
 
   // Resolve who's logged in before loading any watchlist data. api.me()
   // hits GET /auth/me; on a 401 (no/expired/invalid token) the shared
@@ -38,9 +43,24 @@ export default function Home() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [wl, af] = await Promise.all([api.listWatchlist(), api.getAttentionFeed()]);
-    setWatchlist(wl);
-    setFeed(af);
+    // Deliberately swallowed here, not thrown — a background poll failing
+    // (backend down for a moment, network blip, dev server reloading) must
+    // never surface as an unhandled rejection / crash overlay. The last
+    // successfully fetched watchlist/feed stay on screen; we just flag
+    // that we're having trouble and let the next poll retry.
+    try {
+      const [wl, af] = await Promise.all([api.listWatchlist(), api.getAttentionFeed()]);
+      setWatchlist(wl);
+      setFeed(af);
+      setConnectionIssue(false);
+    } catch (err) {
+      // A 401 mid-poll is handled by lib/api.ts itself (clears token,
+      // redirects to /login) — nothing more to do here. Anything else is
+      // a transient connectivity problem, not a real error state.
+      if (!(err instanceof ApiError && err.status === 401)) {
+        setConnectionIssue(true);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -106,10 +126,17 @@ export default function Home() {
     <main className="flex-1 max-w-3xl w-full mx-auto px-6 py-12">
       <header className="mb-10 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Signal</h1>
+          <h1 className="text-2xl font-semibold tracking-tight bg-gradient-to-r from-fuchsia-400 to-violet-400 bg-clip-text text-transparent">
+            Signal
+          </h1>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
             A watchlist that tells you what changed, not just what you own.
           </p>
+          {connectionIssue && (
+            <p className="text-xs text-yellow-500 mt-1.5">
+              ⚠️ Having trouble reaching the server — showing last known data, retrying…
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3 shrink-0 pt-1">
           <span className="text-xs text-[var(--text-tertiary)] font-mono-tabular">{user.email}</span>

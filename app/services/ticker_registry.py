@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 import yfinance as yf
 from sqlalchemy import select
@@ -27,13 +28,21 @@ from app.models import Ticker
 
 logger = logging.getLogger("ticker_registry")
 
+# Yahoo's undocumented endpoints transiently fail/rate-limit on a fresh,
+# never-before-fetched symbol far more often than on a warm one — the
+# exact "typed a real ticker, got 'unresolvable', tried again seconds
+# later and it worked" complaint. A couple of quick retries absorbs that
+# without masking a genuinely bad symbol (which fails every attempt).
+_RESOLVE_ATTEMPTS = 3
+_RESOLVE_RETRY_DELAY_SECONDS = 1.5
+
 
 class UnresolvableTickerError(Exception):
     """Raised when a symbol doesn't correspond to a real, tradeable
     instrument yfinance can return data for."""
 
 
-def _blocking_resolve(symbol: str) -> tuple[str, str] | None:
+def _blocking_resolve_once(symbol: str) -> tuple[str, str] | None:
     """Fully synchronous — must only ever be called via asyncio.to_thread.
 
     Returns (company_name, exchange) or None if the symbol can't be
@@ -74,6 +83,23 @@ def _blocking_resolve(symbol: str) -> tuple[str, str] | None:
         logger.info("Could not fetch metadata for %s; using placeholders", symbol)
 
     return company_name, exchange
+
+
+def _blocking_resolve(symbol: str) -> tuple[str, str] | None:
+    """Retries the resolve a few times before giving up — see
+    _RESOLVE_ATTEMPTS docstring above. Still fully synchronous; must only
+    ever be called via asyncio.to_thread."""
+    for attempt in range(1, _RESOLVE_ATTEMPTS + 1):
+        result = _blocking_resolve_once(symbol)
+        if result is not None:
+            return result
+        if attempt < _RESOLVE_ATTEMPTS:
+            logger.info(
+                "Resolve attempt %d/%d failed for %s; retrying",
+                attempt, _RESOLVE_ATTEMPTS, symbol,
+            )
+            time.sleep(_RESOLVE_RETRY_DELAY_SECONDS)
+    return None
 
 
 async def ensure_ticker_exists(db: AsyncSession, symbol: str) -> None:

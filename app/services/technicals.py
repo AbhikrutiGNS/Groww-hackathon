@@ -76,6 +76,9 @@ class Technicals(TypedDict):
     ema_20: Optional[Decimal]
     ema_50: Optional[Decimal]
     trend_signal: Optional[str]  # "golden_cross" | "death_cross" | None
+    history_days: int  # trading days of daily-close history available — lets
+    # the UI show real progress ("12/50 days") instead of a static
+    # "building…" that looks stuck for the ~2.5 months SMA50 actually needs.
 
 
 def _sma(closes: list[Decimal], period: int) -> Optional[Decimal]:
@@ -140,4 +143,5 @@ async def get_technicals(db: AsyncSession, symbol: str) -> Technicals:
         ema_20=_ema(closes, 20),
         ema_50=_ema(closes, 50),
         trend_signal=_detect_cross(closes),
+        history_days=len(closes),
     )

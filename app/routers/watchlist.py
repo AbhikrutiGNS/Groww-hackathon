@@ -156,6 +156,15 @@ class WatchlistListItem(BaseModel):
     sma_50: Optional[Decimal] = None
     ema_20: Optional[Decimal] = None
     ema_50: Optional[Decimal] = None
+    # Trading days of daily-close history behind the SMA/EMA figures above —
+    # lets the UI show real progress toward the 50-day requirement instead
+    # of a static "building…" that looks the same on day 1 and day 49.
+    history_days: int = 0
+    # 52-week range — comes straight off the latest snapshot (yfinance
+    # supplies it directly), unlike week_high/week_low above which are
+    # derived from 7 days of our own snapshot history.
+    week_52_high: Optional[Decimal] = None
+    week_52_low: Optional[Decimal] = None
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +185,8 @@ _WATCHLIST_SQL = text(
         latest.is_stale AS is_stale,
         latest.day_high AS day_high,
         latest.day_low  AS day_low,
+        latest.week_52_high AS week_52_high,
+        latest.week_52_low  AS week_52_low,
         cf.market_cap        AS market_cap,
         cf.pe_ratio          AS pe_ratio,
         cf.pb_ratio          AS pb_ratio,
@@ -187,7 +198,7 @@ _WATCHLIST_SQL = text(
         cf.updated_at         AS fundamentals_updated_at
     FROM watchlist_items w
     LEFT JOIN LATERAL (
-        SELECT price, is_stale, day_high, day_low
+        SELECT price, is_stale, day_high, day_low, week_52_high, week_52_low
         FROM stock_snapshots s
         WHERE s.symbol = w.symbol
         ORDER BY s.captured_at DESC
@@ -459,14 +470,24 @@ async def get_attention_feed(
         # above, which only covers the price/baseline/52w columns already
         # on that query.
         technicals = await get_technicals(db, row["symbol"])
+        # A brand-new ticker with only one snapshot ever has week_high ==
+        # week_low == that single price, which trivially satisfies BOTH
+        # "hit the week high" and "hit the week low" at once — not a real
+        # signal, just an artifact of there being no range yet. Require an
+        # actual (non-degenerate) range before either flag can fire.
+        has_real_week_range = (
+            technicals["week_high"] is not None
+            and technicals["week_low"] is not None
+            and technicals["week_high"] != technicals["week_low"]
+        )
         hit_week_high = (
-            current is not None
-            and technicals["week_high"] is not None
+            has_real_week_range
+            and current is not None
             and current >= technicals["week_high"]
         )
         hit_week_low = (
-            current is not None
-            and technicals["week_low"] is not None
+            has_real_week_range
+            and current is not None
             and current <= technicals["week_low"]
         )
         trend_signal = technicals["trend_signal"]
