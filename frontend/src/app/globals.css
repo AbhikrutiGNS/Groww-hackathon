@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+:root {
+  /* Base palette — deep charcoal, not pure black; a warm signal-amber for
+     "this deserves attention" rather than the generic terracotta/green. */
+  --bg: #0b0f14;
+  --bg-raised: #12181f;
+  --bg-raised-hover: #171e26;
+  --border: #232b34;
+  --border-hover: #303a45;
+  --text-primary: #e8ecf0;
+  --text-secondary: #8b98a5;
+  --text-tertiary: #5a6772;
+
+  --signal: #e0a94f;      /* amber — "meaningful change" accent */
+  --signal-dim: #4a3d24;
+  --gain: #4fb286;
+  --gain-dim: #1c3128;
+  --loss: #d4685a;
+  --loss-dim: #3a201d;
+  --stale: #6b7a8a;
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
