@@ -1,0 +1,28 @@
+# Pinned runtime dependencies for the FastAPI backend.
+#
+# No requirements.txt existed in the original repo — these versions were
+# derived by installing exactly what app/**/*.py imports (fastapi, sqlalchemy,
+# asyncpg, python-dotenv, bcrypt, python-jose, pydantic w/ email validation,
+# yfinance, alembic) into a clean Python 3.12 environment and freezing the
+# result, then confirming `app.main` imports successfully against it.
+#
+# Direct dependencies -----------------------------------------------------
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+sqlalchemy[asyncio]==2.0.52
+asyncpg==0.31.0
+python-dotenv==1.2.3
+bcrypt==5.0.0
+python-jose[cryptography]==3.5.0
+pydantic[email]==2.13.5
+yfinance==1.7.0
+alembic==1.19.2
+
+# Notable transitive pins (pulled in by the above; pinned here too so a
+# fresh `pip install` can't silently drift to an incompatible major bump) --
+starlette==1.6.0
+pydantic-core==2.46.5
+email-validator==2.3.0
+cryptography==50.0.1
+greenlet==3.5.5
+Mako==1.4.1

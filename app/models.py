@@ -14,10 +14,10 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     ForeignKey,
     Integer,
-    BigInteger,
     Numeric,
     String,
     Text,

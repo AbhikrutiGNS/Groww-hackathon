@@ -56,7 +56,7 @@ export default function Home() {
       .finally(() => setCheckingAuth(false));
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (isInitialLoad = false) => {
     // Deliberately swallowed here, not thrown — a background poll failing
     // (backend down for a moment, network blip, dev server reloading) must
     // never surface as an unhandled rejection / crash overlay. The last
@@ -74,13 +74,29 @@ export default function Home() {
       if (!(err instanceof ApiError && err.status === 401)) {
         setConnectionIssue(true);
       }
+    } finally {
+      // `loading` only ever gates the initial skeleton state; subsequent
+      // polls must never flip it back on and flash the UI back to a
+      // loading skeleton. Owning this inside `refresh` itself (rather
+      // than chaining `.finally(() => setLoading(false))` off the call
+      // site in the effect below) keeps the state update as part of the
+      // same stable callback instead of a one-off promise chain tied
+      // directly to the effect body.
+      if (isInitialLoad) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    refresh().finally(() => setLoading(false));
-    const interval = setInterval(refresh, POLL_MS);
+    // react-hooks/set-state-in-effect flags this because `refresh` (async,
+    // stable via useCallback) eventually calls setState. That's the
+    // legitimate "fetch + poll on mount" pattern — the rule can't tell an
+    // async, debounced/interval-driven update apart from a synchronous
+    // render-loop setState. See https://react.dev/learn/you-might-not-need-an-effect
+    // for the case this rule targets; this isn't it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refresh(true);
+    const interval = setInterval(() => refresh(false), POLL_MS);
     return () => clearInterval(interval);
   }, [user, refresh]);
 

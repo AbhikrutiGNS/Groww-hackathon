@@ -1,0 +1,25 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# Without this, running the `pytest` console script (as opposed to
+# `python -m pytest`) does not add the repo root to sys.path, so
+# `from app import ...` fails with ModuleNotFoundError on some setups
+# (seen on Windows). This makes it work either way.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = ["alembic/versions", "frontend", ".venv", "venv"]
+
+[tool.ruff.lint]
+# Kept intentionally narrow: real bugs (F = pyflakes, e.g. unused
+# imports/vars) and import ordering (I), not pyupgrade/style churn across
+# an existing codebase this task isn't meant to rewrite.
+select = ["E", "F", "I"]
+ignore = [
+    "E501", # line length handled by formatter/soft limit above
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]

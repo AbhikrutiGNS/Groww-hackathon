@@ -13,17 +13,17 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import text, DateTime, bindparam, String, Numeric
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import DateTime, Numeric, String, bindparam, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_db
-from app.models import WatchlistItem, CompanyFundamental, NotificationHistory
 from app.auth import get_current_user_id
-from app.services.ticker_registry import UnresolvableTickerError, ensure_ticker_exists
+from app.db import get_db
+from app.models import NotificationHistory, WatchlistItem
 from app.services.fundamentals import fetch_and_store_fundamentals_for_symbol
 from app.services.technicals import get_technicals
+from app.services.ticker_registry import UnresolvableTickerError, ensure_ticker_exists
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 

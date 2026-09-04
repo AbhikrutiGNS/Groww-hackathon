@@ -16,8 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import AsyncSessionLocal, engine
 from app.routers import auth, watchlist
-from app.services.market_data import fetch_and_store_snapshots
 from app.services.fundamentals import fetch_and_store_fundamentals
+from app.services.market_data import fetch_and_store_snapshots
 
 load_dotenv()
 
