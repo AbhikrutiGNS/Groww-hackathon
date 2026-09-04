@@ -59,21 +59,53 @@ def _is_valid_price(price) -> bool:
 
 
 def _blocking_fetch_quote(symbol: str) -> Optional[FetchedQuote]:
-    """Fully synchronous — must only ever be called via asyncio.to_thread."""
-    info = yf.Ticker(symbol).fast_info  # lighter-weight than .info: fewer requests, less rate-limit exposure
+    """Fully synchronous — must only ever be called via asyncio.to_thread.
 
-    price = getattr(info, "last_price", None)
-    if not _is_valid_price(price):
+    fast_info is a lazy proxy: accessing `.last_price` can itself raise
+    (e.g. Yahoo omitting 'currentTradingPeriod' from chart metadata — a
+    known upstream yfinance issue independent of network failure). We
+    isolate that access so one broken field can't be mistaken for a
+    connectivity problem, and we fall back to a slower but more robust
+    `.history()` call before giving up on this cycle for this symbol.
+    """
+    ticker = yf.Ticker(symbol)
+
+    try:
+        info = ticker.fast_info
+        price = getattr(info, "last_price", None)
+        if _is_valid_price(price):
+            return FetchedQuote(
+                price=price,
+                volume=getattr(info, "last_volume", None),
+                day_high=getattr(info, "day_high", None),
+                day_low=getattr(info, "day_low", None),
+                week_52_high=getattr(info, "year_high", None),
+                week_52_low=getattr(info, "year_low", None),
+            )
+    except Exception:
+        logger.warning("fast_info failed for %s, falling back to history()", symbol)
+
+    # Fallback: plain OHLCV history doesn't touch the metadata field that's
+    # been flaky, at the cost of one extra request.
+    try:
+        hist = ticker.history(period="5d", interval="1d", auto_adjust=False)
+        if hist.empty:
+            return None
+        last = hist.iloc[-1]
+        price = float(last["Close"])
+        if not _is_valid_price(price):
+            return None
+        return FetchedQuote(
+            price=price,
+            volume=float(last["Volume"]) if "Volume" in last else None,
+            day_high=float(last["High"]) if "High" in last else None,
+            day_low=float(last["Low"]) if "Low" in last else None,
+            week_52_high=None,  # not available from this fallback; next successful fast_info call will fill it in
+            week_52_low=None,
+        )
+    except Exception:
+        logger.exception("history() fallback also failed for %s", symbol)
         return None
-
-    return FetchedQuote(
-        price=price,
-        volume=getattr(info, "last_volume", None),
-        day_high=getattr(info, "day_high", None),
-        day_low=getattr(info, "day_low", None),
-        week_52_high=getattr(info, "year_high", None),
-        week_52_low=getattr(info, "year_low", None),
-    )
 
 
 async def _fetch_one(symbol: str) -> tuple[str, Optional[FetchedQuote]]:

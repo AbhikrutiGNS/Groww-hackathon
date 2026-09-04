@@ -13,7 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import text
+from sqlalchemy import text, DateTime, bindparam
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,7 +87,7 @@ async def add_or_reactivate_watchlist_item(
     )
     result = await db.execute(stmt)
     await db.commit()
-    row = result.fetchone()
+    row = result.scalars().first()
     if row is None:
         # symbol not present in `tickers` -> FK violation was caught upstream,
         # or the ticker genuinely doesn't exist on our platform yet.
@@ -176,13 +176,15 @@ _ATTENTION_FEED_SQL = text(
         SELECT price
         FROM stock_snapshots s
         WHERE s.symbol = w.symbol
-          AND :last_viewed_at IS NOT NULL
-          AND s.captured_at <= :last_viewed_at
+          AND CAST(:last_viewed_at AS timestamptz) IS NOT NULL
+          AND s.captured_at <= CAST(:last_viewed_at AS timestamptz)
         ORDER BY s.captured_at DESC
         LIMIT 1
     ) baseline ON true
     WHERE w.user_id = :user_id AND w.is_active = true
     """
+).bindparams(
+    bindparam("last_viewed_at", type_=DateTime(timezone=True)),
 )
 
 
