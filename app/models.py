@@ -1,9 +1,10 @@
 # app/models.py
 """
 Declarative ORM models — must stay byte-for-byte consistent with
-0001_initial_schema.py. If you add a column in one, add it in the other;
-nothing here should ever be relied on to auto-generate the schema in
-production (Alembic migrations are the source of truth).
+0001_initial_schema.py / 0002_holding_transactions.py. If you add a column
+in one, add it in the other; nothing here should ever be relied on to
+auto-generate the schema in production (Alembic migrations are the source
+of truth).
 """
 from __future__ import annotations
 
@@ -110,6 +111,43 @@ class WatchlistItem(Base):
 
     user: Mapped["User"] = relationship(back_populates="watchlist_items")
     ticker: Mapped["Ticker"] = relationship(back_populates="watchlist_items")
+
+
+class HoldingTransaction(Base):
+    """
+    Append-only trade ledger — a BUY or SELL fill, one row each. This is the
+    source of truth for what a user owns; current position (quantity, avg
+    cost, realized P&L) is DERIVED by replaying these rows in order, never
+    stored as a mutable running balance. See app/services/holdings.py.
+
+    Scope note: this is moving-average cost accounting (one blended cost
+    basis per symbol), not FIFO/LIFO tax-lot tracking.
+    """
+
+    __tablename__ = "holding_transactions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    symbol: Mapped[str] = mapped_column(
+        String(20), ForeignKey("tickers.symbol", ondelete="RESTRICT"), nullable=False
+    )
+    side: Mapped[str] = mapped_column(String(4), nullable=False)  # 'BUY' | 'SELL'
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_voided: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    voided_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+    user: Mapped["User"] = relationship()
+    ticker: Mapped["Ticker"] = relationship()
 
 
 class StockSnapshot(Base):

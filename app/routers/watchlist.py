@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.models import WatchlistItem
 from app.auth import get_current_user_id
+from app.services.ticker_registry import UnresolvableTickerError, ensure_ticker_exists
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -58,6 +59,13 @@ class AttentionFeedItem(BaseModel):
 # Never a plain INSERT — the unique constraint on (user_id, symbol) will
 # reject a re-add after a soft delete, and a "check-then-insert" pattern is
 # a race condition under concurrent requests anyway.
+#
+# Before the upsert: ensure_ticker_exists() resolves the symbol against
+# yfinance and creates the `tickers` master row on first sight if it's a
+# real instrument. This is what makes "add any ticker", not just the
+# handful someone manually seeded, actually work. Both writes happen in
+# the same transaction — either the ticker+watchlist-item both land, or
+# neither does.
 # ---------------------------------------------------------------------------
 @router.post("", response_model=WatchlistItemResponse, status_code=200)
 async def add_or_reactivate_watchlist_item(
@@ -66,6 +74,15 @@ async def add_or_reactivate_watchlist_item(
     db: AsyncSession = Depends(get_db),
 ) -> WatchlistItemResponse:
     symbol = payload.symbol.upper().strip()
+
+    try:
+        await ensure_ticker_exists(db, symbol)
+    except UnresolvableTickerError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{symbol}' doesn't look like a valid ticker symbol.",
+        )
 
     stmt = (
         pg_insert(WatchlistItem)
@@ -90,9 +107,10 @@ async def add_or_reactivate_watchlist_item(
     await db.commit()
     row = result.scalars().first()
     if row is None:
-        # symbol not present in `tickers` -> FK violation was caught upstream,
-        # or the ticker genuinely doesn't exist on our platform yet.
-        raise HTTPException(status_code=404, detail=f"Unknown ticker: {symbol}")
+        # Unreachable in practice now that ensure_ticker_exists() guarantees
+        # the FK target exists, but fail loudly rather than return a null
+        # body if some other constraint trips.
+        raise HTTPException(status_code=500, detail=f"Could not add {symbol}")
     return WatchlistItemResponse.model_validate(row)
 
 
