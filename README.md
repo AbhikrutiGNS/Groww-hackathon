@@ -132,9 +132,6 @@ frontend/
   src/lib/                   # api client, auth token storage, formatting helpers
   src/lib/__tests__/         # vitest unit/integration tests
 ```
-
----
-
 ## Quick Start
 
 See **[SETUP.md](./SETUP.md)** for full instructions. In short:
@@ -151,3 +148,45 @@ cd frontend
 npm install
 npm run dev
 ```
+
+---
+## Demo (Screenshots)
+**Login / Signup**
+- Login if you already have an account or signup
+<img width="631" height="552" alt="image" src="https://github.com/user-attachments/assets/6a47c92f-6cd2-4af6-802b-e4b027474fe2" />
+
+- Click on sign up, enter your details and then click on create account to create a fresh account
+<img width="652" height="532" alt="image" src="https://github.com/user-attachments/assets/161f6bcb-cb1f-4895-a71e-f8f40e284e9f" />
+
+- The Below image is what the empty dashboard looks like
+<img width="940" height="857" alt="image" src="https://github.com/user-attachments/assets/bca915ff-0d52-4c7e-8e2a-f30af4503c99" />
+
+- Add a new ticker in the box to get insights on that specific company (for example AAPL/MSFT)
+<img width="948" height="365" alt="image" src="https://github.com/user-attachments/assets/19af4a7e-ef6b-46a1-8b75-1cb930f5b60d" />
+
+- the notification of this gets added to needs your attention notification box
+<img width="937" height="233" alt="image" src="https://github.com/user-attachments/assets/8736e97d-29ff-4e60-a648-f8d2b509c08f" />
+
+- Add more tickers to monitor more stocks
+<img width="907" height="552" alt="image" src="https://github.com/user-attachments/assets/95f10ad3-7c90-4caa-9405-a653f485492f" />
+
+- Unlike other basic watchlists that just show simple green and red percentage changes, our engine calculates on-the-fly SMA crossovers and filters out market noise, routing only truly meaningful structural shifts, like new additions, 52-week ranges, and moving average crossovers directly into the Attention Feed.
+
+- investors can take a look at fundamentals and technicals of a company on the fly to make a quick informed decision
+
+<img width="881" height="395" alt="image" src="https://github.com/user-attachments/assets/d14065e5-2df9-464a-9a54-93dd3f1d95a8" />
+
+- if it's been more than 15min since last update on fundamentals they are flagged as "stale" values
+<img width="868" height="203" alt="image" src="https://github.com/user-attachments/assets/af33bc98-e294-4f78-9064-5f69690d1f03" />
+
+- click on mark as reviewed to clear your attention space
+<img width="931" height="361" alt="image" src="https://github.com/user-attachments/assets/10bcdac0-73b3-4413-8432-694a21c9128f" />
+
+- click on view last 5 notifications to view the last 5 reviewed notifications
+<img width="922" height="576" alt="image" src="https://github.com/user-attachments/assets/6b17d826-853d-4b32-980c-8387bd5bbc33" />
+
+- for people who are new to trading a glossary feature has been implemented to understand the terms hover over the ? symbol beside a term to view a description about the term
+<img width="870" height="227" alt="image" src="https://github.com/user-attachments/assets/bc669907-57a1-46ed-b384-cdf3426072fa" />
+
+- the application also has a dedicated glossary section to view all terms at once 
+ <img width="872" height="608" alt="image" src="https://github.com/user-attachments/assets/3f2861d1-8fb2-4679-8f43-3503236d93a5" />
