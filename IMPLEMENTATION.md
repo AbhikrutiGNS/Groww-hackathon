@@ -11,16 +11,16 @@ overview and [SETUP.md](./SETUP.md) to run it.
 ┌─────────────┐        HTTP/JSON (Bearer JWT)        ┌──────────────────┐
 │  Next.js UI │ ───────────────────────────────────► │   FastAPI app    │
 │  (frontend) │ ◄─────────────────────────────────── │   (app/main.py)  │
-└─────────────┘                                       └────────┬─────────┘
-                                                                │
-                                       ┌────────────────────────┼─────────────────────────┐
-                                       │                        │                         │
-                              background ingestion       routers (auth, watchlist)  services layer
-                              loops (asyncio tasks,               │                (technicals, market_data,
-                              started in lifespan)                │                 fundamentals, ticker_registry)
-                                       │                          │                         │
-                                       └──────────────┬───────────┴─────────────────────────┘
-                                                       ▼
+└─────────────┘                                      └────────┬─────────┘
+                                                              │
+                                       ┌──────────────────────┼───────────────────────────────┐
+                                       │                      │                               │
+                              background ingestion       routers (auth, watchlist)    services layer
+                              loops (asyncio tasks,           │                      (technicals, market_data,
+                              started in lifespan)            │                       fundamentals, ticker_registry)
+                                       │                      │                              │
+                                       └──────────────┬───────┴──────────────────────────────┘
+                                                      ▼
                                             PostgreSQL (async, SQLAlchemy 2.0)
                                                        ▲
                                                        │
